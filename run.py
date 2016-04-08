@@ -11,10 +11,11 @@ from yowsup.common import YowConstants
 from yowsup.layers import YowLayerEvent
 from yowsup.stacks import YowStack, YOWSUP_CORE_LAYERS
 from yowsup.layers.axolotl                     import YowAxolotlLayer
-from yowsup import env
+#from yowsup import env
+from yowsup.env import YowsupEnv
 
 
-CREDENTIALS = ("4917668619749","g3gATVfezwEcFOzy1I71iSPypnc=") # replace with your phone and password
+CREDENTIALS = () # replace with your phone and password
 
 if __name__==  "__main__":
     layers = (
@@ -26,7 +27,7 @@ if __name__==  "__main__":
     stack.setProp(YowAuthenticationProtocolLayer.PROP_CREDENTIALS, CREDENTIALS)         #setting credentials
     stack.setProp(YowNetworkLayer.PROP_ENDPOINT, YowConstants.ENDPOINTS[0])    #whatsapp server address
     stack.setProp(YowCoderLayer.PROP_DOMAIN, YowConstants.DOMAIN)              
-    stack.setProp(YowCoderLayer.PROP_RESOURCE, env.CURRENT_ENV.getResource())          #info about us as WhatsApp client
+    stack.setProp(YowCoderLayer.PROP_RESOURCE, YowsupEnv.getCurrent())          #info about us as WhatsApp client
 
     stack.broadcastEvent(YowLayerEvent(YowNetworkLayer.EVENT_STATE_CONNECT))   #sending the connect signal
 
