@@ -15,10 +15,8 @@ from yowsup.layers.protocol_receipts.protocolentities import OutgoingReceiptProt
 from yowsup.layers.protocol_acks.protocolentities import OutgoingAckProtocolEntity
 from yowsup.stacks import YowStack, YOWSUP_CORE_LAYERS
 from yowsup.layers.axolotl                     import YowAxolotlLayer
-#from yowsup import env
-#from yowsup.env import YowsupEnv
+
 import sys
-from yowsup.common.tools import Jid
 
 from multiprocessing import Process
 from os import getpid, path
@@ -34,23 +32,27 @@ class EchoLayer(YowInterfaceLayer):
         self.connection = conn
 	self.tokens = dict()
 	self.whatsapp_to_telegram = dict()
-    
+
+    # is called when a telegram message arrives
     @EventCallback("got_telegram")
     def onCallback(self, layerEvent):
         msg = self.connection.recv()
-        print(msg)
 	if msg[0]==Command.token:
 		self.tokens[msg[1]] = msg[2]
 	elif msg[0]==Command.message:
-		msg = TextMessageProtocolEntity(msg[2].encode('ascii',errors='ignore'), to = msg[1])#'491778808907-1457090836@g.us')
+		msg = TextMessageProtocolEntity(msg[2].encode('ascii',errors='ignore'), to = msg[1])
         	self.toLower(msg)
+	elif msg[0] == Command.delete:
+		del self.whatsapp_to_telegram[msg[1]]
 
+    # is called when the WhatsappBot shutting down
     @EventCallback("nighttime")
     def onNightTime(self, layerEvent):
     	with open(WhatsappBot.SAVEPATH, 'w+') as f:
             f.write(json.dumps(self.whatsapp_to_telegram))
 	    f.truncate()
 
+    # is called when the WhatsappBot starts
     @EventCallback("daytime")
     def onDayTime(self, layerEvent):
         if path.isfile(WhatsappBot.SAVEPATH):
@@ -59,24 +61,24 @@ class EchoLayer(YowInterfaceLayer):
 	        if read!="":
 		    self.whatsapp_to_telegram = json.loads(read)
 
-        print("loaded")
-
+    # is called a Whatsapp message arrives
     @ProtocolEntityCallback("message")
     def onMessage(self, messageProtocolEntity):
-	print(messageProtocolEntity)
-        print(self.whatsapp_to_telegram)
+        print("message from whatsapp from " + messageProtocolEntity.getNotify() + " : " + messageProtocolEntity.getBody())
         if messageProtocolEntity.getBody() in self.tokens:
-		self.connection.send([Command.token_ack, messageProtocolEntity.getFrom(), self.tokens[messageProtocolEntity.getBody()]])
+                self.connection.send([Command.token_ack, messageProtocolEntity.getFrom(), self.tokens[messageProtocolEntity.getBody()]])
 		self.whatsapp_to_telegram[messageProtocolEntity.getFrom()] = self.tokens[messageProtocolEntity.getBody()]
 	elif messageProtocolEntity.getFrom() in self.whatsapp_to_telegram:
 		telegram_ID=self.whatsapp_to_telegram[messageProtocolEntity.getFrom()]
-		self.connection.send([Command.message,telegram_ID,messageProtocolEntity.getParticipant().split('@')[0] + ": " + messageProtocolEntity.getBody()])
+		self.connection.send([Command.message,telegram_ID,messageProtocolEntity.getNotify() + ": " + messageProtocolEntity.getBody()])
 
+    
     @ProtocolEntityCallback("receipt")
     def onReceipt(self, entity):
         ack = OutgoingAckProtocolEntity(entity.getId(), "receipt", entity.getType(), entity.getFrom())
         self.toLower(ack)
 
+# inject a event into the yowsup stack when a message from Telegram arrives
 class Communication(asyncore.dispatcher):
     def __init__(self, conn, stack):
         asyncore.dispatcher.__init__(self)
@@ -100,14 +102,14 @@ class Communication(asyncore.dispatcher):
         return True
 
 class WhatsappBot(Process):
-    CREDENTIALS = () # replace with your phone and password
-    SAVEPATH = "./whatsapp"
+    CREDENTIALS = ("<CREDENTIALS-HERE>")
+    SAVEPATH = path.expanduser("~") + "/.config/whattelcopybot/whatsapp"
 
     def __init__(self,conn):
         self.connection=conn
         super(WhatsappBot,self).__init__()
         
-
+    # injects an event into yowsup to save our file
     def save_to_file(self, signum, frame):
 	self.stack.broadcastEvent(YowLayerEvent("nighttime"))
         sys.exit(0)
@@ -126,18 +128,22 @@ class WhatsappBot(Process):
         self.stack.setProp(YowCoderLayer.PROP_DOMAIN, YowConstants.DOMAIN)              
         #self.stack.setProp(YowCoderLayer.PROP_RESOURCE, YowsupEnv.getCurrent())          #info about us as WhatsApp client
        
+        # initialize the EchoStack with our connection to Telegram
         echoLayer = self.stack.getLayer(-1)
         echoLayer.init(self.connection)
 
         self.stack.broadcastEvent(YowLayerEvent(YowNetworkLayer.EVENT_STATE_CONNECT))   #sending the connect signal
-	self.stack.broadcastEvent(YowLayerEvent("daytime"))
+	
+        # inject an event into yowsup to load our file
+        self.stack.broadcastEvent(YowLayerEvent("daytime"))
 
+        # create our dummy stream handler
         Communication(self.connection, self.stack)
 	
-	signal.signal(signal.SIGINT, self.save_to_file)
+	# save our hashmap when the TelegramBot is terminated
+        signal.signal(signal.SIGINT, self.save_to_file)
         signal.signal(signal.SIGTERM, self.save_to_file)
 
-	#try:
-	self.stack.loop() #this is the program mainloop
-	#except Exception as e:
-	##	print e
+        # this is the WhatsappBot main loop
+	self.stack.loop()
+
